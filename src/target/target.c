@@ -110,7 +110,7 @@ extern struct target_type stm8_target;
 extern struct target_type riscv_target;
 extern struct target_type mem_ap_target;
 extern struct target_type esirisc_target;
-
+//chengquan init
 static struct target_type *target_types[] = {
 	&arm7tdmi_target,
 	&arm9tdmi_target,
@@ -1326,7 +1326,7 @@ static int target_init_one(struct command_context *cmd_ctx,
 		type->check_reset = default_check_reset;
 
 	assert(type->init_target != NULL);
-
+	// chengquan init
 	int retval = type->init_target(cmd_ctx, target);
 	if (ERROR_OK != retval) {
 		LOG_ERROR("target '%s' init failed", target_name(target));
@@ -1372,7 +1372,7 @@ static int target_init_one(struct command_context *cmd_ctx,
 
 	return ERROR_OK;
 }
-
+//chengquan init
 static int target_init(struct command_context *cmd_ctx)
 {
 	struct target *target;
@@ -3340,6 +3340,113 @@ static int target_fill_mem(struct target *target,
 
 	return retval;
 }
+
+
+
+//revised by qcheng
+COMMAND_HANDLER(handle_hachi_command)
+{
+	if (CMD_ARGC < 1)
+		return ERROR_COMMAND_SYNTAX_ERROR;
+
+	unsigned size = 4; //32-bit system
+	unsigned mode = 0;
+	switch (CMD_NAME[2]) {
+	case 'r':
+		mode = 1;
+		break;
+	case 'd':
+		mode = 2;
+		break;
+	default:
+		return ERROR_COMMAND_SYNTAX_ERROR;
+	}
+
+	bool physical = strcmp(CMD_ARGV[0], "phys") == 0;
+	int (*rdfn)(struct target *target,
+			target_addr_t address, uint32_t size_value, uint32_t count, uint8_t *buffer);
+	target_write_fn wrfn;
+	if (physical) {
+		CMD_ARGC--;
+		CMD_ARGV++;
+		rdfn = target_read_phys_memory;
+		wrfn = target_write_phys_memory;
+	} else {
+		rdfn = target_read_memory;
+		wrfn = target_write_memory;
+	}
+
+	unsigned count = 1; //read 1 word
+	target_addr_t baseaddr = 0x50000000;
+	//if (CMD_ARGC == 2)
+	//	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], count);
+	struct target *target = get_current_target(CMD_CTX);
+
+	if(mode == 1)
+	{ 
+		(void)target_fill_mem(target, baseaddr + 0x0c, wrfn, size, 0x1, count);
+		return target_fill_mem(target, baseaddr+ 0x0c, wrfn, size, 0x0, count);
+	}
+	else if(mode == 2)
+	{
+		if (CMD_ARGC != 5)
+			return ERROR_COMMAND_SYNTAX_ERROR;
+		target_addr_t rdaddr_value;
+		target_addr_t wraddr_value;
+		target_addr_t wrdata_value;
+		COMMAND_PARSE_ADDRESS(CMD_ARGV[0], rdaddr_value);
+		COMMAND_PARSE_ADDRESS(CMD_ARGV[1], wraddr_value);
+		COMMAND_PARSE_ADDRESS(CMD_ARGV[2], wrdata_value);
+
+		//op mode: bit-0 rd bit-1 wr
+		unsigned rdwren = 0;
+		if (strcmp(CMD_ARGV[3], "on") == 0) //rd en
+		{
+			rdwren |= 0x1; 
+		}
+
+		if (strcmp(CMD_ARGV[4], "on") == 0) //wr en
+		{
+			rdwren |= 0x2; 
+		}
+		(void)target_fill_mem(target, baseaddr + 0x1C, wrfn, size, rdwren, count); //mode cfg
+		(void)target_fill_mem(target, baseaddr + 0x14, wrfn, size, rdaddr_value, count); //rd_addr 0~0x3ff
+		(void)target_fill_mem(target, baseaddr + 0x18, wrfn, size, wraddr_value, count); //wr_addr  0~0x3ff
+		(void)target_fill_mem(target, baseaddr + 0x00, wrfn, size, wrdata_value, count); //wr_data 1-bit
+		(void)target_fill_mem(target, baseaddr + 0x08, wrfn, size, 0x1, count); //wr_data 1-bit
+		//check_scan_chain operation done
+
+		uint8_t *buffer = calloc(count, size);
+		if (buffer == NULL) {
+			LOG_ERROR("Failed to allocate md read buffer");
+			return ERROR_FAIL;
+		}
+		int retval = 0;
+		while(buffer[0]!=0x01)
+		{
+			retval = rdfn(target, baseaddr + 0x10, size, count, buffer); //scan_done
+			//if (ERROR_OK == retval)
+			//	target_handle_md_output(CMD, target, baseaddr + 0x10, size, count, buffer);
+		}
+		//free(buffer);
+		//return retval;
+
+		if(rdwren & 0x1) //rd_en
+		{
+			retval = rdfn(target, baseaddr + 0x04, size, count, buffer);
+			if (ERROR_OK == retval)
+				target_handle_md_output(CMD, target, rdaddr_value, size, count, buffer);
+			free(buffer);
+			return retval;
+		}
+		free(buffer);
+		return retval;
+	}else
+	{
+		return 0;
+	}
+}
+
 
 
 COMMAND_HANDLER(handle_mw_command)
@@ -6286,6 +6393,21 @@ static const struct command_registration target_exec_command_handlers[] = {
 		.mode = COMMAND_EXEC,
 		.help = "display memory words",
 		.usage = "['phys'] address [count]",
+	},
+	//revised by qcheng
+	{
+		.name = "scrst",
+		.handler = handle_hachi_command,
+		.mode = COMMAND_EXEC,
+		.help = "reset scanchain",
+		.usage = "Reset the scan chain",
+	},
+	{
+		.name = "scdw",
+		.handler = handle_hachi_command,
+		.mode = COMMAND_EXEC,
+		.help = "display scanchain bit",
+		.usage = "rdaddr wraddr wrdata rdon wron",
 	},
 	{
 		.name = "mdh",
