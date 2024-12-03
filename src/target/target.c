@@ -3377,13 +3377,13 @@ COMMAND_HANDLER(handle_hachi_command)
 	}
 
 	unsigned count = 1; //read 1 word
-	target_addr_t baseaddr = 0x50000000;
+	target_addr_t baseaddr = 0x0B000000;
 	//if (CMD_ARGC == 2)
 	//	COMMAND_PARSE_NUMBER(uint, CMD_ARGV[1], count);
 	struct target *target = get_current_target(CMD_CTX);
 
 	if(mode == 1)
-	{ 
+	{   //rst scanchain
 		(void)target_fill_mem(target, baseaddr + 0x0c, wrfn, size, 0x1, count);
 		return target_fill_mem(target, baseaddr+ 0x0c, wrfn, size, 0x0, count);
 	}
@@ -3400,12 +3400,12 @@ COMMAND_HANDLER(handle_hachi_command)
 
 		//op mode: bit-0 rd bit-1 wr
 		unsigned rdwren = 0;
-		if (strcmp(CMD_ARGV[3], "on") == 0) //rd en
+		if (strcmp(CMD_ARGV[3], "on") == 0) //wr en
 		{
 			rdwren |= 0x1; 
 		}
 
-		if (strcmp(CMD_ARGV[4], "on") == 0) //wr en
+		if (strcmp(CMD_ARGV[4], "on") == 0) //wr mode
 		{
 			rdwren |= 0x2; 
 		}
@@ -3422,6 +3422,7 @@ COMMAND_HANDLER(handle_hachi_command)
 			return ERROR_FAIL;
 		}
 		int retval = 0;
+		alive_sleep(10);//10ms delay
 		while(buffer[0]!=0x01)
 		{
 			retval = rdfn(target, baseaddr + 0x10, size, count, buffer); //scan_done
@@ -3431,7 +3432,7 @@ COMMAND_HANDLER(handle_hachi_command)
 		//free(buffer);
 		//return retval;
 
-		if(rdwren & 0x1) //rd_en
+		//if(rdwren & 0x1) //rd_en
 		{
 			retval = rdfn(target, baseaddr + 0x04, size, count, buffer);
 			if (ERROR_OK == retval)
@@ -3439,8 +3440,8 @@ COMMAND_HANDLER(handle_hachi_command)
 			free(buffer);
 			return retval;
 		}
-		free(buffer);
-		return retval;
+		//free(buffer);
+		//return retval;
 	}else
 	{
 		return 0;
@@ -6407,7 +6408,7 @@ static const struct command_registration target_exec_command_handlers[] = {
 		.handler = handle_hachi_command,
 		.mode = COMMAND_EXEC,
 		.help = "display scanchain bit",
-		.usage = "rdaddr wraddr wrdata rdon wron",
+		.usage = "rdaddr wraddr wrdata wren wrmod",
 	},
 	{
 		.name = "mdh",
